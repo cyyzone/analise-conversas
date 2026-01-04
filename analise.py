@@ -1,19 +1,21 @@
-import requests
-import google.generativeai as genai
-import time
-import streamlit as st
-import pandas as pd
-from datetime import datetime, timezone, timedelta, time as dt_time
-import re
-import io
+import requests # O meu "motoboy" que busca e leva dados na internet.
+import google.generativeai as genai # O cérebro da operação (IA do Google).
+import time # O relógio, essencial pra dar pausas dramáticas (e não travar a API).
+import streamlit as st # O palco onde meu show acontece (o site).
+import pandas as pd # O Excel superpoderoso do Python.
+from datetime import datetime, timezone, timedelta, time as dt_time # Minha agenda completa.
+import re # A "lupa" (Regex) pra encontrar padrões no meio do texto.
+import io # Uma "pasta virtual" pra criar arquivos na memória sem salvar no PC.
 
 # --- 1. CONFIGURAÇÕES ---
+# Defino o nome da aba e o ícone de diamante, porque esse painel vale ouro! 💎
 st.set_page_config(page_title="Analise de conversas", page_icon="💎", layout="wide") 
 
-def check_password(): # Função para verificar a senha de acesso à aplicação Streamlit
+# --- 🔐 O SEGURANÇA DA BALADA (Login) ---
+def check_password(): # Comparo o que digitaram com a senha que guardei no cofre (secrets).
     """Retorna True se o usuário tiver a senha correta."""
 
-    def password_entered(): # Função para verificar se a senha inserida bate com a do segredo.
+    def password_entered(): 
         """Verifica se a senha inserida bate com a do segredo."""
         if st.session_state["password"] == st.secrets["PASSWORD"]:
             st.session_state["password_correct"] = True
@@ -29,7 +31,7 @@ def check_password(): # Função para verificar a senha de acesso à aplicação
     st.title("🔒 Acesso Restrito")
     st.text_input(
         "Digite a senha de acesso:", 
-        type="password", 
+        type="password", # Esconde as letras com bolinhas •••
         on_change=password_entered, 
         key="password"
     )
@@ -57,15 +59,15 @@ model = genai.GenerativeModel('gemma-3-12b-it') # Modelo Gemini a ser usado
 if 'df_resultado' not in st.session_state: # Variável para armazenar o DataFrame de resultados
     st.session_state['df_resultado'] = None # Inicializa como None
 
-# --- 2. FUNÇÕES AUXILIARES ---
+# --- 2. MINHAS ASSISTENTES (Funções Auxiliares) ---
 
-def fazer_requisicao_segura(method, url, json=None, params=None, max_retries=5): # Função para fazer requisições HTTP com tratamento de erros e rate limiting
+def fazer_requisicao_segura(method, url, json=None, params=None, max_retries=5): # Essa é a minha diplomata. Ela fala com o Intercom com todo cuidado. Se o Intercom disser 'tô ocupado' (Rate Limit), ela espera pacientemente.
     headers = { #   Cabeçalhos HTTP - API
         "Authorization": f"Bearer {INTERCOM_TOKEN}",
         "Accept": "application/json",
         "Content-Type": "application/json"
     }
-    for attempt in range(max_retries): # Tenta fazer a requisição várias vezes em caso de falha
+    for attempt in range(max_retries): # Tenta algumas vezes, porque sou brasileira e não desisto.
         try: # Dependendo do método, faz a requisição apropriada
             if method == "POST": # POST request
                 resp = requests.post(url, json=json, headers=headers) # Faz requisição POST
@@ -74,7 +76,7 @@ def fazer_requisicao_segura(method, url, json=None, params=None, max_retries=5):
             
             if resp.status_code == 200: # Se a resposta for bem-sucedida, retorna o JSON
                 return resp.json() # Retorna o JSON da resposta
-            elif resp.status_code == 429: # Se atingir o limite de requisições, aguarda o tempo necessário
+            elif resp.status_code == 429: # Eita, o Intercom pediu um tempo. Rate Limit atingido.
                 wait = int(resp.headers.get("X-RateLimit-Reset", time.time() + 2)) - int(time.time()) + 2 # Calcula o tempo de espera
                 wait = max(2, wait) # Garante um tempo mínimo de espera
                 st.toast(f"⏳ Aguardando {wait}s (Rate Limit)...", icon="🛑") 
@@ -86,26 +88,29 @@ def fazer_requisicao_segura(method, url, json=None, params=None, max_retries=5):
             time.sleep(2) # Espera 2 segundos antes de tentar novamente
     return None
 
-def chamar_gemini_seguro(prompt):# Função para chamar o modelo Gemini com tratamento de erros
-    for attempt in range(3): # Tenta chamar o modelo várias vezes em caso de falha
+def chamar_gemini_seguro(prompt):# Função para chamar o modelo Gemini com tratamento de erro. Minha conversa com a IA. Às vezes ela 'alucina' ou falha, então eu insisto.
+    for attempt in range(3): # # Tento 3 vezes conversar com a gata.
         try: # Tenta gerar o conteúdo com o modelo
             response = model.generate_content(prompt) # Gera o conteúdo usando o modelo Gemini
-            return response.text # Retorna o texto gerado
+            return response.text # Retorna o texto que a IA  gerou.
         except: # Em caso de exceção, aguarda um tempo exponencial antes de tentar novamente
-            time.sleep(2 ** (attempt + 1)) # Espera exponencialmente mais tempo a cada tentativa    
-    return "Falha na análise da IA." # Retorna mensagem de falha após várias tentativas
+            time.sleep(2 ** (attempt + 1)) # Espero exponencialmente (2s, 4s, 8s...) pra não ser chata.   
+    return "Falha na análise da IA." # Desisto.
 
 def extrair_nota_automacao(texto_automacao): # Função para extrair a nota de automação do texto
     match = re.search(r'\b(10|[0-9])\b', str(texto_automacao)) # Procura por um número entre 0 e 10 no texto 
     if match: return int(match.group(1)) # Retorna a nota encontrada
     return 0 # Retorna 0 se nenhuma nota for encontrada
 
+#A GRANDE MÁGICA! 
+#A IA me devolve um textão. Aqui eu uso 'Regex' (minha lupa) pra picotar esse texto e guardar cada informação na sua caixinha certa (Motivo, Problema, Ação...).
 def processar_resposta_texto(texto): # Função para processar a resposta de texto da IA e extrair campos específicos
     dados = { # Dicionário para armazenar os dados extraídos
         "Motivo": "Não identificado", "Qtd Problemas": "", "Dúvidas": "", # Campos padrão
         "Ação": "", "Falta Contato": "", "Automação Texto": "", 
         "Nota Automação": 0, "Melhoria": ""
     }
+    # Esses códigos estranhos são as "regras" pra achar onde começa e termina cada resposta.
     padroes = { # Padrões regex para extrair cada campo
         "Motivo": r"1\.\s*\**.*? contato\**\s*:?\s*(.*?)(?=\n\s*2\.|\n\s*\**2\.)", # Regex para extrair o motivo do contato
         "Qtd Problemas": r"2\.\s*\**.*? problemas\**\s*:?\s*(.*?)(?=\n\s*3\.|\n\s*\**3\.)",# Regex para extrair a quantidade de problemas relatados
@@ -117,7 +122,7 @@ def processar_resposta_texto(texto): # Função para processar a resposta de tex
     }
     for chave, regex in padroes.items(): # Itera sobre os padrões para extrair cada campo
         match = re.search(regex, texto, re.DOTALL | re.IGNORECASE) # Procura o padrão no texto
-        if match: # Se encontrar uma correspondência, limpa e armazena o valor
+        if match: # Limpo a sujeira (**negrito**, crases) pra ficar bonito na tabela.
             dados[chave] = match.group(1).strip().replace("**", "").replace("`", "") # Limpa o texto extraído
     
     if dados["Automação Texto"]: # Extrai a nota de automação se o texto estiver presente
