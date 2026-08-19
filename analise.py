@@ -206,7 +206,7 @@ with st.sidebar:
         "Selecione...",
         "Dúvida",
         "Ação manual realizada em N1",
-        "Chamado (N2/CSM/IMP/fin)",
+        "Chamado (N2/CSM/IMP/Fin)",
         "Expansão"
     ]
     
