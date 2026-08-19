@@ -130,13 +130,16 @@ def processar_resposta_texto(texto): # Função para processar a resposta de tex
     return dados # Retorna o dicionário com os dados extraídos
 
 # --- 3. FUNÇÕES PRINCIPAIS ---
-@st.cache_data(show_spinner=False) # Cacheia o resultado para evitar recarregamentos desnecessários
-def carregar_tags(): # Função para carregar as tags do arquivo Excel gerado anteriormente
-    try: # Tenta ler o arquivo Excel e criar um dicionário de tags
-        df = pd.read_excel("tags_intercom.xlsx") # Lê o arquivo Excel com as tags
-        df['ID da Tag'] = df['ID da Tag'].astype(str) # Garante que os IDs sejam strings
-        return dict(zip(df["Nome da Tag"].astype(str).str.strip(), df["ID da Tag"])) # Retorna um dicionário mapeando nomes de tags para IDs
-    except: return {} # Retorna um dicionário vazio em caso de erro
+@st.cache_data(show_spinner=False)
+def carregar_motivos():
+    try:
+        # Lê o arquivo Excel que você enviou
+        df = pd.read_excel("Motivos de contato.xlsx")
+        # Pega a coluna e transforma numa lista do Python
+        motivos = df["MOTIVO DE CONTATO (ATRIBUTO)"].dropna().astype(str).tolist()
+        return ["Selecione..."] + motivos
+    except:
+        return ["Selecione...", "Erro ao carregar a planilha"]
 
 def buscar_conversas(tipo, motivo, motivo_2, d_inicio, d_fim):
     url = "https://api.intercom.io/conversations/search"
@@ -199,13 +202,13 @@ tags_map = carregar_tags()
 with st.sidebar:
     st.header("Filtros")
     
-    # 1. Opções do primeiro campo
+    # Opções principais (atenção para deixar as maiúsculas iguais ao Intercom)
     opcoes_tipo = [
         "Selecione...",
-        "duvida",
-        "ação manual realizada em n1",
-        "chamado (N2/CSM/IMP/fin)",
-        "Expasão"
+        "Dúvida",
+        "Ação manual realizada em N1",
+        "Chamado (N2/CSM/IMP/fin)",
+        "Expansão"
     ]
     
     tipo_selecionado = st.selectbox("Tipo de Atendimento:", opcoes_tipo)
@@ -214,14 +217,14 @@ with st.sidebar:
     motivo_contato = None
     motivo_2 = None
     
-    # 2. Só mostra os próximos campos se a pessoa escolher um tipo válido
+    # Só mostra os próximos campos se um tipo for escolhido
     if tipo_selecionado != "Selecione...":
         
-        # ATENÇÃO: Aqui você precisa colocar a lista real de motivos que vocês usam
-        lista_motivos = ["Selecione...", "Acesso", "Boleto", "Dúvida no sistema", "Outros"]
+        # Puxa os 333 motivos direto do Excel!
+        lista_motivos = carregar_motivos()
         
         motivo_contato = st.selectbox("Motivo de Contato:", lista_motivos)
-        motivo_2 = st.selectbox("Motivo 2 (Se houver):", ["Selecione..."] + lista_motivos[1:])
+        motivo_2 = st.selectbox("Motivo 2 (Se houver):", lista_motivos)
 
     st.divider()
     d1 = st.date_input("Início", datetime.now()-timedelta(days=7))
@@ -235,7 +238,7 @@ with st.sidebar:
             st.warning("Selecione um Tipo de Atendimento para começar.")
         else:
             with st.spinner("Buscando conversas..."):
-                # Passamos as novas variáveis para a função de busca
+                # A função de busca que atualizamos na mensagem anterior
                 lista_conv = buscar_conversas(tipo_selecionado, motivo_contato, motivo_2, d1, d2)
             
             if not lista_conv: # Verifica se alguma conversa foi encontrada
