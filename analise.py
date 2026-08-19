@@ -129,71 +129,71 @@ def processar_resposta_texto(texto): # Função para processar a resposta de tex
         dados["Nota Automação"] = extrair_nota_automacao(dados["Automação Texto"]) # Extrai a nota de automação do texto
     return dados # Retorna o dicionário com os dados extraídos
 
-# --- 3. FUNÇÕES PRINCIPAIS ---
-@st.cache_data(show_spinner=False)
-def carregar_motivos():
+@st.cache_data(ttl=3600, show_spinner=False)
+def buscar_mapa_atributos():
+    # Precisamos desta função de volta para traduzir o nome para o formato interno
+    url = "https://api.intercom.io/data_attributes"
+    params = {"model": "conversation"}
+    
+    headers = {
+        "Authorization": f"Bearer {INTERCOM_TOKEN}",
+        "Accept": "application/json"
+    }
+    
     try:
-        # Lê o arquivo Excel que você enviou
-        df = pd.read_excel("Motivos de contato.xlsx")
-        # Pega a coluna e transforma numa lista do Python
-        motivos = df["MOTIVO DE CONTATO (ATRIBUTO)"].dropna().astype(str).tolist()
-        return ["Selecione..."] + motivos
+        r = requests.get(url, headers=headers, params=params)
+        atributos = r.json().get('data', [])
+        # Retorna {"Nome na Tela": "nome_interno"}
+        return {item['label']: item['name'] for item in atributos if item.get('custom')}
     except:
-        return ["Selecione...", "Erro ao carregar a planilha"]
+        return {}
 
-def buscar_conversas(tipo, motivo, motivo_2, d_inicio, d_fim):
+def buscar_conversas(tipo, motivo, motivo_2, d_inicio, d_fim, mapa):
     url = "https://api.intercom.io/conversations/search"
     ts_i = int(datetime.combine(d_inicio, dt_time.min).replace(tzinfo=timezone.utc).timestamp())
     ts_f = int(datetime.combine(d_fim, dt_time.max).replace(tzinfo=timezone.utc).timestamp())
     
-    # 1. Pedimos para a API buscar APENAS pelas datas
+    # 1. Filtros base (Data)
+    filtros = [
+        {"field": "created_at", "operator": ">", "value": ts_i},
+        {"field": "created_at", "operator": "<", "value": ts_f}
+    ]
+    
+    # 2. Pega os nomes internos corretos do mapa
+    tipo_interno = mapa.get("Tipo de Atendimento")
+    motivo_interno = mapa.get("Motivo de Contato")
+    motivo2_interno = mapa.get("Motivo 2 (Se houver)")
+    
+    # 3. Adiciona os filtros de atributos SOMENTE se existirem
+    if tipo and tipo != "Selecione..." and tipo_interno:
+        filtros.append({"field": f"custom_attributes.{tipo_interno}", "operator": "=", "value": tipo})
+        
+    if motivo and motivo != "Selecione..." and motivo_interno:
+        filtros.append({"field": f"custom_attributes.{motivo_interno}", "operator": "=", "value": motivo})
+        
+    if motivo_2 and motivo_2 != "Selecione..." and motivo2_interno:
+        filtros.append({"field": f"custom_attributes.{motivo2_interno}", "operator": "=", "value": motivo_2})
+    
     payload = {
         "query": {
             "operator": "AND",
-            "value": [
-                {"field": "created_at", "operator": ">", "value": ts_i},
-                {"field": "created_at", "operator": "<", "value": ts_f}
-            ]
+            "value": filtros
         },
         "pagination": {"per_page": 50},
         "sort": {"field": "created_at", "order": "desc"}
     }
     
-    todas_conversas = []
+    conversas = []
     while True:
         data = fazer_requisicao_segura("POST", url, json=payload)
         if not data: break
-        todas_conversas.extend(data.get('conversations', []))
+        conversas.extend(data.get('conversations', []))
         pag = data.get('pages', {})
         if pag.get('next'):
             payload['pagination']['starting_after'] = pag['next']['starting_after']
         else: break
             
-    # 2. O Python faz o filtro fino com precisão absoluta
-    conversas_filtradas = []
-    for conv in todas_conversas:
-        atributos = conv.get("custom_attributes", {})
-        
-        tipo_conv = atributos.get("Tipo de Atendimento", "")
-        motivo_conv = atributos.get("Motivo de Contato", "")
-        motivo2_conv = atributos.get("Motivo 2 (Se houver)", "")
-        
-        # Regra A: O Tipo de Atendimento tem que bater
-        if tipo != "Selecione..." and tipo_conv != tipo:
-            continue
-            
-        # Regra B: Se você escolheu um Motivo 1, ele tem que bater
-        if motivo and motivo != "Selecione..." and motivo_conv != motivo:
-            continue
-            
-        # Regra C: Se você escolheu um Motivo 2, ele tem que bater
-        if motivo_2 and motivo_2 != "Selecione..." and motivo2_conv != motivo_2:
-            continue
-            
-        # Passou em todos os filtros
-        conversas_filtradas.append(conv)
-        
-    return conversas_filtradas
+    return conversas
     
 def ler_conversa_completa(c_id): # Função para ler a conversa completa de um ticket específico
     data = fazer_requisicao_segura("GET", f"https://api.intercom.io/conversations/{c_id}") # Faz a requisição segura para obter a conversa
@@ -249,8 +249,8 @@ with st.sidebar:
             st.warning("Selecione um Tipo de Atendimento para começar.")
         else:
             with st.spinner("Buscando conversas..."):
-                # Busca as conversas usando o filtro do Python
-                lista_conv = buscar_conversas(tipo_selecionado, motivo_contato, motivo_2, d1, d2)
+                mapa = buscar_mapa_atributos()
+                lista_conv = buscar_conversas(tipo_selecionado, motivo_contato, motivo_2, d1, d2, mapa)
                 
             if not lista_conv: # Verifica se alguma conversa foi encontrada
                 st.warning("Nada encontrado.") # Exibe aviso se nenhuma conversa foi encontrada
@@ -290,9 +290,7 @@ with st.sidebar:
                     2. **Quantos problemas relatados**: (Qual a dor?)
                     3. **Principais dúvidas ou reclamações**:
                     4. Ação do agente:
-                    5. **Finalizada por falta de contato?** (Sim/Não)
-                    6. **Potencial para automação por bot?** (0 a 10 e o motivo)
-                    7. **Oportunidade de melhoria:** (Se houver)
+                    5. **Oportunidade de melhoria:** (Se houver)
                     """
                     # Chama o modelo Gemini de forma segura
                     resposta_texto = chamar_gemini_seguro(prompt)
