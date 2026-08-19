@@ -146,43 +146,57 @@ def buscar_conversas(tipo, motivo, motivo_2, d_inicio, d_fim):
     ts_i = int(datetime.combine(d_inicio, dt_time.min).replace(tzinfo=timezone.utc).timestamp())
     ts_f = int(datetime.combine(d_fim, dt_time.max).replace(tzinfo=timezone.utc).timestamp())
     
-    conversas = []
-    
-    # Montamos a lista de filtros base com a data e o tipo de atendimento
-    filtros = [
-        {"field": "created_at", "operator": ">", "value": ts_i},
-        {"field": "created_at", "operator": "<", "value": ts_f},
-        # Nome do campo ajustado para o padrão interno da API do Intercom
-        {"field": "custom_attributes.tipo_de_atendimento", "operator": "=", "value": tipo} 
-    ]
-    
-    # Se a pessoa selecionou um motivo válido, adicionamos ele na busca
-    if motivo and motivo != "Selecione...":
-        filtros.append({"field": "custom_attributes.motivo_de_contato", "operator": "=", "value": motivo})
-        
-    if motivo_2 and motivo_2 != "Selecione...":
-        filtros.append({"field": "custom_attributes.motivo_2_se_houver", "operator": "=", "value": motivo_2})
-        
+    # 1. Pedimos para a API buscar APENAS pelas datas (isso funciona sempre)
     payload = {
         "query": {
             "operator": "AND",
-            "value": filtros
+            "value": [
+                {"field": "created_at", "operator": ">", "value": ts_i},
+                {"field": "created_at", "operator": "<", "value": ts_f}
+            ]
         },
         "pagination": {"per_page": 50},
         "sort": {"field": "created_at", "order": "desc"}
     }
     
+    todas_conversas = []
     while True:
         data = fazer_requisicao_segura("POST", url, json=payload)
         if not data: break
-        conversas.extend(data.get('conversations', []))
+        todas_conversas.extend(data.get('conversations', []))
         pag = data.get('pages', {})
         if pag.get('next'):
             payload['pagination']['starting_after'] = pag['next']['starting_after']
         else: break
             
-    return conversas
-
+    # 2. Agora o Python faz o filtro fino com os atributos!
+    conversas_filtradas = []
+    for conv in todas_conversas:
+        atributos = conv.get("custom_attributes", {})
+        
+        # Pega os valores que vieram no ticket
+        tipo_conv = atributos.get("Tipo de Atendimento", "Vazio")
+        motivo_conv = atributos.get("Motivo de Contato", "Vazio")
+        motivo2_conv = atributos.get("Motivo 2 (Se houver)", "Vazio")
+        
+        # Regra A: O Tipo de Atendimento tem que bater
+        if tipo_conv != tipo:
+            continue
+            
+        # Regra B: Se você escolheu um Motivo 1, ele tem que bater
+        if motivo and motivo != "Selecione...":
+            if motivo_conv != motivo:
+                continue
+                
+        # Regra C: Se você escolheu um Motivo 2, ele tem que bater
+        if motivo_2 and motivo_2 != "Selecione...":
+            if motivo2_conv != motivo_2:
+                continue
+                
+        # Se passou por todas as regras, é a conversa certa!
+        conversas_filtradas.append(conv)
+        
+    return conversas_filtradas
 def ler_conversa_completa(c_id): # Função para ler a conversa completa de um ticket específico
     data = fazer_requisicao_segura("GET", f"https://api.intercom.io/conversations/{c_id}") # Faz a requisição segura para obter a conversa
     if not data: return "" # Retorna string vazia em caso de erro
