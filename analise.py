@@ -217,6 +217,19 @@ with st.sidebar: # Barra lateral para filtros e controles
                     progresso.progress((i+1)/len(lista_conv)) # Atualiza a barra de progresso
                     
                     texto_ticket = ler_conversa_completa(c_id) # Lê a conversa completa do ticket
+                    
+                    # --- NOVO CÓDIGO AQUI: Capturando os atributos ---
+                    # Pegamos o dicionário de atributos personalizados da conversa
+                    atributos = conv.get("custom_attributes", {})
+                    
+                    # Extraímos os valores exatos que você precisa
+                    tipo_atendimento = atributos.get("Tipo de Atendimento", "Vazio")
+                    col_expansao = atributos.get("COL_EXPANSAO", "Vazio")
+                    motivo_contato = atributos.get("Motivo de Contato", "Vazio")
+                    motivo_2 = atributos.get("Motivo 2 (Se houver)", "Vazio")
+                    status_atendimento = atributos.get("Status do atendimento", "Vazio")
+                    # --------------------------------------------------
+                    
                     # Cria o prompt para a análise da IA
                     prompt = f""" 
                     Você é um analisador de conversas de suporte premium. Analise a seguinte conversa de suporte completa:
@@ -239,6 +252,15 @@ with st.sidebar: # Barra lateral para filtros e controles
                         "ID": c_id, # ID do ticket
                         "Data": datetime.fromtimestamp(conv['created_at']).strftime('%d/%m/%Y'), # Data de criação formatada
                         "Link": f"https://app.intercom.com/a/inbox/{INTERCOM_APP_ID}/inbox/conversation/{c_id}", # Link para o ticket no Intercom
+                        
+                        # --- NOVO CÓDIGO AQUI: Adicionando na tabela ---
+                        "Tipo de Atendimento": tipo_atendimento, 
+                        "COL_EXPANSAO": col_expansao,           
+                        "Motivo de Contato": motivo_contato,    
+                        "Motivo 2 (Se houver)": motivo_2,       
+                        "Status do atendimento": status_atendimento, 
+                        # --------------------------------------------------
+                        
                         **campos_extraidos, # Adiciona os campos extraídos da análise
                         "Análise Completa": resposta_texto # Texto completo da análise feita pela IA
                     }
