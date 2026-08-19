@@ -196,8 +196,6 @@ st.title("📊 Analise de conversas")
 
 # Container para o topo da página
 top_container = st.container()
-# Carrega as tags do arquivo Excel
-tags_map = carregar_tags()
 
 with st.sidebar:
     st.header("Filtros")
