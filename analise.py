@@ -141,76 +141,59 @@ def carregar_motivos():
     except:
         return ["Selecione...", "Erro ao carregar a planilha"]
 
-@st.cache_data(ttl=3600, show_spinner=False)
-def buscar_mapa_atributos():
-    url = "https://api.intercom.io/data_attributes"
-    params = {"model": "conversation"}
-    
-    headers = {
-        "Authorization": f"Bearer {INTERCOM_TOKEN}",
-        "Accept": "application/json"
-    }
-    
-    try:
-        r = requests.get(url, headers=headers, params=params)
-        atributos = r.json().get('data', [])
-        
-        # Cria um dicionário no formato: {"Tipo de Atendimento": "tipo_de_atendimento"}
-        mapa = {item['label']: item['name'] for item in atributos if item.get('custom')}
-        return mapa
-    except:
-        return {}
-
-def buscar_conversas(tipo, motivo, motivo_2, d_inicio, d_fim, mapa_atributos):
+def buscar_conversas(tipo, motivo, motivo_2, d_inicio, d_fim):
     url = "https://api.intercom.io/conversations/search"
     ts_i = int(datetime.combine(d_inicio, dt_time.min).replace(tzinfo=timezone.utc).timestamp())
     ts_f = int(datetime.combine(d_fim, dt_time.max).replace(tzinfo=timezone.utc).timestamp())
     
-    # 1. Pega os nomes internos corretos usando o mapa
-    nome_tipo = mapa_atributos.get("Tipo de Atendimento")
-    nome_motivo = mapa_atributos.get("Motivo de Contato")
-    nome_motivo2 = mapa_atributos.get("Motivo 2 (Se houver)")
-    
-    # Se por algum acaso o atributo não for encontrado no mapa, 
-    # não dá erro, só evita colocar o filtro errado.
-    
-    # 2. Monta os filtros baseados na data
-    filtros = [
-        {"field": "created_at", "operator": ">", "value": ts_i},
-        {"field": "created_at", "operator": "<", "value": ts_f}
-    ]
-    
-    # 3. Adiciona os filtros de atributos SOMENTE se tiverem sido selecionados
-    # E SOMENTE se eles existirem lá no Intercom
-    if tipo and tipo != "Selecione..." and nome_tipo:
-        filtros.append({"field": f"custom_attributes.{nome_tipo}", "operator": "=", "value": tipo})
-        
-    if motivo and motivo != "Selecione..." and nome_motivo:
-        filtros.append({"field": f"custom_attributes.{nome_motivo}", "operator": "=", "value": motivo})
-        
-    if motivo_2 and motivo_2 != "Selecione..." and nome_motivo2:
-        filtros.append({"field": f"custom_attributes.{nome_motivo2}", "operator": "=", "value": motivo_2})
-    
+    # 1. Pedimos para a API buscar APENAS pelas datas
     payload = {
         "query": {
             "operator": "AND",
-            "value": filtros
+            "value": [
+                {"field": "created_at", "operator": ">", "value": ts_i},
+                {"field": "created_at", "operator": "<", "value": ts_f}
+            ]
         },
         "pagination": {"per_page": 50},
         "sort": {"field": "created_at", "order": "desc"}
     }
     
-    conversas = []
+    todas_conversas = []
     while True:
         data = fazer_requisicao_segura("POST", url, json=payload)
         if not data: break
-        conversas.extend(data.get('conversations', []))
+        todas_conversas.extend(data.get('conversations', []))
         pag = data.get('pages', {})
         if pag.get('next'):
             payload['pagination']['starting_after'] = pag['next']['starting_after']
         else: break
             
-    return conversas
+    # 2. O Python faz o filtro fino com precisão absoluta
+    conversas_filtradas = []
+    for conv in todas_conversas:
+        atributos = conv.get("custom_attributes", {})
+        
+        tipo_conv = atributos.get("Tipo de Atendimento", "")
+        motivo_conv = atributos.get("Motivo de Contato", "")
+        motivo2_conv = atributos.get("Motivo 2 (Se houver)", "")
+        
+        # Regra A: O Tipo de Atendimento tem que bater
+        if tipo != "Selecione..." and tipo_conv != tipo:
+            continue
+            
+        # Regra B: Se você escolheu um Motivo 1, ele tem que bater
+        if motivo and motivo != "Selecione..." and motivo_conv != motivo:
+            continue
+            
+        # Regra C: Se você escolheu um Motivo 2, ele tem que bater
+        if motivo_2 and motivo_2 != "Selecione..." and motivo2_conv != motivo_2:
+            continue
+            
+        # Passou em todos os filtros
+        conversas_filtradas.append(conv)
+        
+    return conversas_filtradas
     
 def ler_conversa_completa(c_id): # Função para ler a conversa completa de um ticket específico
     data = fazer_requisicao_segura("GET", f"https://api.intercom.io/conversations/{c_id}") # Faz a requisição segura para obter a conversa
@@ -260,18 +243,15 @@ with st.sidebar:
     
     st.divider()
     
-    # Botão de Processar
+   # Botão de Processar
     if st.button("🚀 Processar Conversas", type="primary"):
         if tipo_selecionado == "Selecione...":
             st.warning("Selecione um Tipo de Atendimento para começar.")
         else:
             with st.spinner("Buscando conversas..."):
-                # NOVO: Busca o mapa primeiro
-                mapa = buscar_mapa_atributos()
+                # Busca as conversas usando o filtro do Python
+                lista_conv = buscar_conversas(tipo_selecionado, motivo_contato, motivo_2, d1, d2)
                 
-                # Passa o mapa pra função buscar as conversas
-                lista_conv = buscar_conversas(tipo_selecionado, motivo_contato, motivo_2, d1, d2, mapa)
-            
             if not lista_conv: # Verifica se alguma conversa foi encontrada
                 st.warning("Nada encontrado.") # Exibe aviso se nenhuma conversa foi encontrada
             else: # Se conversas foram encontradas, inicia a análise
