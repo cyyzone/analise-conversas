@@ -138,34 +138,46 @@ def carregar_tags(): # Função para carregar as tags do arquivo Excel gerado an
         return dict(zip(df["Nome da Tag"].astype(str).str.strip(), df["ID da Tag"])) # Retorna um dicionário mapeando nomes de tags para IDs
     except: return {} # Retorna um dicionário vazio em caso de erro
 
-def buscar_conversas(lista_ids, d_inicio, d_fim): # Função para buscar conversas no Intercom com base em tags e intervalo de datas
-    url = "https://api.intercom.io/conversations/search" # URL da API de busca de conversas
-    ts_i = int(datetime.combine(d_inicio, dt_time.min).replace(tzinfo=timezone.utc).timestamp()) # Timestamp de início
-    ts_f = int(datetime.combine(d_fim, dt_time.max).replace(tzinfo=timezone.utc).timestamp()) # Timestamp de fim
+def buscar_conversas(tipo, motivo, motivo_2, d_inicio, d_fim):
+    url = "https://api.intercom.io/conversations/search"
+    ts_i = int(datetime.combine(d_inicio, dt_time.min).replace(tzinfo=timezone.utc).timestamp())
+    ts_f = int(datetime.combine(d_fim, dt_time.max).replace(tzinfo=timezone.utc).timestamp())
     
-    conversas = [] # Lista para armazenar as conversas encontradas
-    payload = { # Payload da requisição de busca
-        "query": { # Consulta com filtros
-            "operator": "AND", # Operador AND para combinar filtros
-            "value": [ # Filtros específicos
-                {"field": "tag_ids", "operator": "IN", "value": lista_ids}, # Filtro por tags
-                {"field": "created_at", "operator": ">", "value": ts_i}, # Filtro por data de início
-                {"field": "created_at", "operator": "<", "value": ts_f} # Filtro por data de fim
-            ]
+    conversas = []
+    
+    # Montamos a lista de filtros base com a data e o tipo de atendimento
+    filtros = [
+        {"field": "created_at", "operator": ">", "value": ts_i},
+        {"field": "created_at", "operator": "<", "value": ts_f},
+        {"field": "custom_attributes.Tipo de Atendimento", "operator": "=", "value": tipo}
+    ]
+    
+    # Se a pessoa selecionou um motivo válido, adicionamos ele na busca
+    if motivo and motivo != "Selecione...":
+        filtros.append({"field": "custom_attributes.Motivo de Contato", "operator": "=", "value": motivo})
+        
+    if motivo_2 and motivo_2 != "Selecione...":
+        filtros.append({"field": "custom_attributes.Motivo 2 (Se houver)", "operator": "=", "value": motivo_2})
+    
+    payload = {
+        "query": {
+            "operator": "AND",
+            "value": filtros
         },
-        "pagination": {"per_page": 50}, # Configuração de paginação
-        "sort": {"field": "created_at", "order": "desc"} # Ordenação por data de criação decrescente
+        "pagination": {"per_page": 50},
+        "sort": {"field": "created_at", "order": "desc"}
     }
     
-    while True: # Loop para paginar através dos resultados
-        data = fazer_requisicao_segura("POST", url, json=payload) # Faz a requisição segura
-        if not data: break # Sai do loop se não houver dados
-        conversas.extend(data.get('conversations', [])) # Adiciona as conversas encontradas à lista
-        pag = data.get('pages', {}) # Obtém informações de paginação
-        if pag.get('next'): #   Se houver uma próxima página, atualiza o payload para buscar a próxima página
-            payload['pagination']['starting_after'] = pag['next']['starting_after'] # Atualiza o cursor de paginação
-        else: break # Sai do loop se não houver mais páginas
-    return conversas # Retorna a lista de conversas encontradas
+    while True:
+        data = fazer_requisicao_segura("POST", url, json=payload)
+        if not data: break
+        conversas.extend(data.get('conversations', []))
+        pag = data.get('pages', {})
+        if pag.get('next'):
+            payload['pagination']['starting_after'] = pag['next']['starting_after']
+        else: break
+            
+    return conversas
 
 def ler_conversa_completa(c_id): # Função para ler a conversa completa de um ticket específico
     data = fazer_requisicao_segura("GET", f"https://api.intercom.io/conversations/{c_id}") # Faz a requisição segura para obter a conversa
@@ -184,23 +196,47 @@ top_container = st.container()
 # Carrega as tags do arquivo Excel
 tags_map = carregar_tags()
 
-with st.sidebar: # Barra lateral para filtros e controles
-    st.header("Filtros") # Cabeçalho da barra lateral
-    tags_sel = st.multiselect("Tags:", list(tags_map.keys()) if tags_map else []) # Seleção múltipla de tags
-    ids_sel = [tags_map[t] for t in tags_sel] # Obtém os IDs das tags selecionadas
-    st.divider() # Linha divisória
-    d1 = st.date_input("Início", datetime.now()-timedelta(days=7)) # Input de data de início
-    d2 = st.date_input("Fim", datetime.now()) # Input de data de fim
+with st.sidebar:
+    st.header("Filtros")
     
-    st.divider() # Linha divisória
+    # 1. Opções do primeiro campo
+    opcoes_tipo = [
+        "Selecione...",
+        "duvida",
+        "ação manual realizada em n1",
+        "chamado (N2/CSM/IMP/fin)",
+        "Expasão"
+    ]
+    
+    tipo_selecionado = st.selectbox("Tipo de Atendimento:", opcoes_tipo)
+    
+    # Criamos as variáveis vazias primeiro
+    motivo_contato = None
+    motivo_2 = None
+    
+    # 2. Só mostra os próximos campos se a pessoa escolher um tipo válido
+    if tipo_selecionado != "Selecione...":
+        
+        # ATENÇÃO: Aqui você precisa colocar a lista real de motivos que vocês usam
+        lista_motivos = ["Selecione...", "Acesso", "Boleto", "Dúvida no sistema", "Outros"]
+        
+        motivo_contato = st.selectbox("Motivo de Contato:", lista_motivos)
+        motivo_2 = st.selectbox("Motivo 2 (Se houver):", ["Selecione..."] + lista_motivos[1:])
+
+    st.divider()
+    d1 = st.date_input("Início", datetime.now()-timedelta(days=7))
+    d2 = st.date_input("Fim", datetime.now())
+    
+    st.divider()
     
     # Botão de Processar
-    if st.button("🚀 Processar Conversas", type="primary"): # Botão para iniciar o processamento das conversas
-        if not ids_sel: # Verifica se alguma tag foi selecionada
-            st.warning("Selecione uma tag.") # Exibe aviso se nenhuma tag for selecionada
-        else: # Se tags foram selecionadas, inicia o processamento
-            with st.spinner("Buscando conversas..."): # Mostra spinner enquanto busca conversas
-                lista_conv = buscar_conversas(ids_sel, d1, d2) # Busca as conversas com base nas tags e datas selecionadas
+    if st.button("🚀 Processar Conversas", type="primary"):
+        if tipo_selecionado == "Selecione...":
+            st.warning("Selecione um Tipo de Atendimento para começar.")
+        else:
+            with st.spinner("Buscando conversas..."):
+                # Passamos as novas variáveis para a função de busca
+                lista_conv = buscar_conversas(tipo_selecionado, motivo_contato, motivo_2, d1, d2)
             
             if not lista_conv: # Verifica se alguma conversa foi encontrada
                 st.warning("Nada encontrado.") # Exibe aviso se nenhuma conversa foi encontrada
