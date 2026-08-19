@@ -53,7 +53,7 @@ except:
     st.stop()
 
 genai.configure(api_key=GEMINI_API_KEY) # Configuração da API Gemini
-model = genai.GenerativeModel('gemma-3-12b-it') # Modelo Gemini a ser usado
+model = genai.GenerativeModel('gemma-4-31b-it') # Modelo Gemini a ser usado
 
 # Inicializa variável de sessão para armazenar resultados
 if 'df_resultado' not in st.session_state: # Variável para armazenar o DataFrame de resultados
