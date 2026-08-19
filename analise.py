@@ -129,6 +129,17 @@ def processar_resposta_texto(texto): # Função para processar a resposta de tex
         dados["Nota Automação"] = extrair_nota_automacao(dados["Automação Texto"]) # Extrai a nota de automação do texto
     return dados # Retorna o dicionário com os dados extraídos
 
+@st.cache_data(show_spinner=False)
+def carregar_motivos():
+    try:
+        # Lê o arquivo Excel que você enviou
+        df = pd.read_excel("Motivos de contato.xlsx")
+        # Pega a coluna e transforma numa lista do Python
+        motivos = df["MOTIVO DE CONTATO (ATRIBUTO)"].dropna().astype(str).tolist()
+        return ["Selecione..."] + motivos
+    except:
+        return ["Selecione...", "Erro ao carregar a planilha"]
+
 @st.cache_data(ttl=3600, show_spinner=False)
 def buscar_mapa_atributos():
     # Precisamos desta função de volta para traduzir o nome para o formato interno
