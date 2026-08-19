@@ -152,16 +152,17 @@ def buscar_conversas(tipo, motivo, motivo_2, d_inicio, d_fim):
     filtros = [
         {"field": "created_at", "operator": ">", "value": ts_i},
         {"field": "created_at", "operator": "<", "value": ts_f},
-        {"field": "custom_attributes.Tipo de Atendimento", "operator": "=", "value": tipo}
+        # Nome do campo ajustado para o padrão interno da API do Intercom
+        {"field": "custom_attributes.tipo_de_atendimento", "operator": "=", "value": tipo} 
     ]
     
     # Se a pessoa selecionou um motivo válido, adicionamos ele na busca
     if motivo and motivo != "Selecione...":
-        filtros.append({"field": "custom_attributes.Motivo de Contato", "operator": "=", "value": motivo})
+        filtros.append({"field": "custom_attributes.motivo_de_contato", "operator": "=", "value": motivo})
         
     if motivo_2 and motivo_2 != "Selecione...":
-        filtros.append({"field": "custom_attributes.Motivo 2 (Se houver)", "operator": "=", "value": motivo_2})
-    
+        filtros.append({"field": "custom_attributes.motivo_2_se_houver", "operator": "=", "value": motivo_2})
+        
     payload = {
         "query": {
             "operator": "AND",
